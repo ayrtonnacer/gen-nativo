@@ -1,61 +1,50 @@
 'use client';
-
+import { createClient } from '@/lib/supabase/client';
 import { User } from './types';
 
-const STORAGE_KEY = 'gen_nativo_user';
-
-export function login(email: string, password: string): User | null {
-  // Demo authentication - in production, this would call an API
-  const users = getMockUsers();
-  const user = users.find(u => u.email === email);
-  
-  if (user && password === 'demo123') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-    return user;
-  }
-  
-  return null;
+// Convierte el perfil de Supabase (columnas en español) al tipo User del app
+function profileToUser(profile: {
+  id: string;
+  email: string;
+  nombre: string | null;
+  rol: string;
+  gen_nativo_id: string | null;
+}): User {
+  return {
+    id: profile.id,
+    email: profile.email,
+    name: profile.nombre ?? profile.email,
+    role: profile.rol as User['role'],
+    centroId: profile.gen_nativo_id ?? 'sin-asignar',
+  };
 }
 
-export function logout() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-export function getCurrentUser(): User | null {
+// Obtiene el usuario actual desde Supabase Auth + tabla profiles
+export async function getCurrentUser(): Promise<User | null> {
   if (typeof window === 'undefined') return null;
-  
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return null;
-  
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return null;
-  }
+  const supabase = createClient();
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, email, nombre, rol, gen_nativo_id')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile) return null;
+  return profileToUser(profile);
 }
 
-function getMockUsers(): User[] {
-  return [
-    {
-      id: '1',
-      email: 'admin@gennativo.gob.ar',
-      name: 'Administrador',
-      role: 'admin',
-      centroId: 'centro-1'
-    },
-    {
-      id: '2',
-      email: 'tecnico@gennativo.gob.ar',
-      name: 'Técnico de Laboratorio',
-      role: 'tecnico',
-      centroId: 'centro-1'
-    },
-    {
-      id: '3',
-      email: 'agronomo@gennativo.gob.ar',
-      name: 'Ingeniero Agrónomo',
-      role: 'agronomo',
-      centroId: 'centro-2'
-    }
-  ];
+// Cierra sesión en Supabase
+export async function logout(): Promise<void> {
+  const supabase = createClient();
+  await supabase.auth.signOut();
+}
+
+// Devuelve true si el usuario es admin
+export async function isAdmin(): Promise<boolean> {
+  const user = await getCurrentUser();
+  return user?.role === 'admin';
 }

@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Leaf } from 'lucide-react';
-import { login } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/client';
 
 export function LoginForm() {
   const router = useRouter();
@@ -22,15 +22,21 @@ export function LoginForm() {
     setError('');
     setLoading(true);
 
-    const user = login(email, password);
+    const supabase = createClient();
     
-    if (user) {
-      router.push('/dashboard');
-    } else {
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
       setError('Credenciales inválidas');
+      setLoading(false);
+      return;
     }
-    
-    setLoading(false);
+
+    router.push('/dashboard');
+    router.refresh();
   };
 
   return (
@@ -43,7 +49,7 @@ export function LoginForm() {
           <div>
             <CardTitle className="text-3xl font-bold text-balance">Gen Nativo</CardTitle>
             <CardDescription className="text-base mt-2">
-              Sistema de Producción de Árboles Nativos
+              Sistema de Produccion de Arboles Nativos
             </CardDescription>
           </div>
         </CardHeader>
@@ -56,7 +62,7 @@ export function LoginForm() {
             )}
             
             <div className="space-y-2">
-              <Label htmlFor="email">Correo electrónico</Label>
+              <Label htmlFor="email">Correo electronico</Label>
               <Input
                 id="email"
                 type="email"
@@ -69,11 +75,11 @@ export function LoginForm() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password">Contrasena</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder="********"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -84,26 +90,6 @@ export function LoginForm() {
             <Button type="submit" className="w-full" size="lg" disabled={loading}>
               {loading ? 'Ingresando...' : 'Ingresar'}
             </Button>
-
-            <div className="mt-6 pt-4 border-t border-border">
-              <p className="text-sm text-muted-foreground text-center mb-3">
-                Usuarios de demostración:
-              </p>
-              <div className="space-y-2 text-xs">
-                <div className="bg-muted p-2 rounded">
-                  <strong>Admin:</strong> admin@gennativo.gob.ar
-                </div>
-                <div className="bg-muted p-2 rounded">
-                  <strong>Técnico:</strong> tecnico@gennativo.gob.ar
-                </div>
-                <div className="bg-muted p-2 rounded">
-                  <strong>Agrónomo:</strong> agronomo@gennativo.gob.ar
-                </div>
-                <p className="text-center text-muted-foreground mt-2">
-                  Contraseña: <code className="bg-muted px-2 py-1 rounded">demo123</code>
-                </p>
-              </div>
-            </div>
           </form>
         </CardContent>
       </Card>

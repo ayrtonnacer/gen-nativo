@@ -1,5 +1,4 @@
 'use client';
-
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
@@ -18,48 +17,43 @@ export default function DashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user) {
-      router.push('/');
+    async function checkAuth() {
+      const user = await getCurrentUser();
+      if (!user) {
+        router.push('/');
+      }
     }
+    checkAuth();
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       <DashboardHeader />
-      
-      <main className="container mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center justify-between">
+      <main className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">Panel de Control</h2>
-            <p className="text-muted-foreground mt-1">
-              Resumen de producción y estadísticas
-            </p>
+            <h1 className="text-3xl font-bold text-gray-900">Panel de Control</h1>
+            <p className="text-gray-600 mt-1">Resumen de producción y estadísticas</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             <ExportMenu />
             <Button asChild>
               <Link href="/lotes/nuevo">
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="h-4 w-4 mr-2" />
                 Nuevo Lote
               </Link>
             </Button>
           </div>
         </div>
-
         <DashboardStats />
-
-        <div>
-          <h3 className="text-xl font-semibold mb-4">Etapas de Producción</h3>
-          <ProductionStages />
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
           <ProductionChart />
           <SpeciesDistribution />
         </div>
-
-        <RecentBatches />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <RecentBatches />
+          <ProductionStages />
+        </div>
       </main>
     </div>
   );

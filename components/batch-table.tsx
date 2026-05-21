@@ -1,6 +1,5 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
 import {
   Table,
   TableBody,
@@ -11,62 +10,39 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getLotes, getEspecies, getCentros } from '@/lib/data';
-import { Lote, EstadoLote } from '@/lib/types';
-import { Eye, TrendingDown } from 'lucide-react';
-import Link from 'next/link';
+import { Eye } from 'lucide-react';
+import { ETAPA_LABELS } from '@/lib/database.types';
+
+const etapaColors: Record<string, string> = {
+  germinacion: 'bg-blue-100 text-blue-800',
+  repique: 'bg-green-100 text-green-800',
+  rusticacion: 'bg-amber-100 text-amber-800',
+  campo: 'bg-emerald-100 text-emerald-800',
+};
 
 interface BatchTableProps {
-  estado?: EstadoLote;
+  etapa?: string;
+  genNativoId?: string;
 }
 
-const estadoLabels = {
-  germinacion: 'Germinación',
-  repique: 'Repique',
-  rusticacion: 'Rusticación',
-  campo: 'Campo'
-};
+export async function BatchTable({ etapa, genNativoId }: BatchTableProps) {
+  const supabase = await createClient();
 
-const estadoColors = {
-  germinacion: 'bg-blue-500',
-  repique: 'bg-green-500',
-  rusticacion: 'bg-amber-500',
-  campo: 'bg-emerald-600'
-};
+  let query = supabase
+    .from('lotes')
+    .select('*, especie:especies(nombre_comun, nombre_cientifico), gen_nativo:gen_nativos(nombre)')
+    .eq('activo', true)
+    .order('created_at', { ascending: false });
 
-export function BatchTable({ estado }: BatchTableProps) {
-  const [lotes, setLotes] = useState<any[]>([]);
+  if (etapa) query = query.eq('etapa', etapa);
+  if (genNativoId) query = query.eq('gen_nativo_id', genNativoId);
 
-  useEffect(() => {
-    const allLotes = getLotes();
-    const especies = getEspecies();
-    const centros = getCentros();
-    
-    let filteredLotes = allLotes;
-    if (estado) {
-      filteredLotes = allLotes.filter(l => l.estado === estado);
-    }
-    
-    const enrichedLotes = filteredLotes.map(lote => {
-      const especie = especies.find(e => e.id === lote.especieId);
-      const centro = centros.find(c => c.id === lote.centroId);
-      const mortalidad = ((lote.cantidadInicial - lote.cantidadActual) / lote.cantidadInicial * 100).toFixed(1);
-      
-      return {
-        ...lote,
-        especieNombre: especie?.nombre || 'Desconocida',
-        centroNombre: centro?.nombre || 'Desconocido',
-        mortalidad: parseFloat(mortalidad)
-      };
-    }).sort((a, b) => new Date(b.creadoEl).getTime() - new Date(a.creadoEl).getTime());
-    
-    setLotes(enrichedLotes);
-  }, [estado]);
+  const { data: lotes } = await query;
 
-  if (lotes.length === 0) {
+  if (!lotes || lotes.length === 0) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">No hay lotes en esta etapa</p>
+      <div className="text-center py-12 text-muted-foreground">
+        No hay lotes en esta etapa
       </div>
     );
   }
@@ -76,43 +52,47 @@ export function BatchTable({ estado }: BatchTableProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Lote</TableHead>
+            <TableHead>Código</TableHead>
             <TableHead>Especie</TableHead>
-            <TableHead>Centro</TableHead>
             <TableHead>Etapa</TableHead>
-            <TableHead className="text-right">Cantidad</TableHead>
-            <TableHead className="text-right">Mortalidad</TableHead>
-            <TableHead>Fecha Inicio</TableHead>
+            <TableHead className="text-right">Plantas</TableHead>
+            <TableHead>Fecha siembra</TableHead>
             <TableHead className="text-right">Acciones</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {lotes.map((lote) => (
             <TableRow key={lote.id}>
-              <TableCell className="font-medium">{lote.numero}</TableCell>
-              <TableCell>{lote.especieNombre}</TableCell>
-              <TableCell className="text-muted-foreground text-sm">{lote.centroNombre}</TableCell>
+              <TableCell className="font-medium">{lote.codigo}</TableCell>
               <TableCell>
-                <Badge variant="secondary" className={estadoColors[lote.estado]}>
-                  {estadoLabels[lote.estado]}
+                <div>
+                  <p className="font-medium text-sm">
+                    {lote.especie?.nombre_comun ?? <span className="text-muted-foreground">Sin especie</span>}
+                  </p>
+                  {lote.especie?.nombre_cientifico && (
+                    <p className="text-xs text-muted-foreground italic">{lote.especie.nombre_cientifico}</p>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>
+                <Badge variant="secondary" className={etapaColors[lote.etapa] ?? ''}>
+                  {ETAPA_LABELS[lote.etapa] ?? lote.etapa}
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex flex-col items-end">
-                  <span className="font-medium">{lote.cantidadActual.toLocaleString()}</span>
-                  <span className="text-xs text-muted-foreground">
-                    de {lote.cantidadInicial.toLocaleString()}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className={`flex items-center justify-end gap-1 ${lote.mortalidad > 20 ? 'text-destructive' : 'text-muted-foreground'}`}>
-                  {lote.mortalidad > 0 && <TrendingDown className="h-3 w-3" />}
-                  <span className="font-medium">{lote.mortalidad}%</span>
+                  <span className="font-medium">{lote.cantidad_actual.toLocaleString()}</span>
+                  {lote.cantidad_semillas_n && (
+                    <span className="text-xs text-muted-foreground">
+                      de {lote.cantidad_semillas_n.toLocaleString()} sem.
+                    </span>
+                  )}
                 </div>
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">
-                {new Date(lote.fechaInicio).toLocaleDateString('es-AR')}
+                {lote.fecha_siembra
+                  ? new Date(lote.fecha_siembra + 'T00:00:00').toLocaleDateString('es-AR')
+                  : '-'}
               </TableCell>
               <TableCell className="text-right">
                 <Button variant="ghost" size="sm" asChild>

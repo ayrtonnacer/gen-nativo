@@ -1,147 +1,79 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { notFound, redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Edit, ArrowRight, TrendingDown } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Sprout, MapPin } from 'lucide-react';
 import Link from 'next/link';
-import { getLotes, getEspecies, getCentros, getMovimientos, addMovimiento, updateLote } from '@/lib/data';
-import { Lote, MovimientoLote, EstadoLote } from '@/lib/types';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { ETAPA_LABELS, SECTOR_TIPO_LABELS } from '@/lib/database.types';
+import { AvanzarEtapaDialog } from '@/components/avanzar-etapa-dialog';
 
-const estadoLabels = {
-  germinacion: 'Germinación',
-  repique: 'Repique',
-  rusticacion: 'Rusticación',
-  campo: 'Campo'
+const etapaColors: Record<string, string> = {
+  germinacion: 'bg-blue-100 text-blue-800',
+  repique: 'bg-green-100 text-green-800',
+  rusticacion: 'bg-amber-100 text-amber-800',
+  campo: 'bg-emerald-100 text-emerald-800',
 };
 
-const estadoColors = {
-  germinacion: 'bg-blue-500',
-  repique: 'bg-green-500',
-  rusticacion: 'bg-amber-500',
-  campo: 'bg-emerald-600'
-};
-
-const nextStage: { [key in EstadoLote]?: EstadoLote } = {
+const nextStage: Record<string, string> = {
   germinacion: 'repique',
   repique: 'rusticacion',
-  rusticacion: 'campo'
+  rusticacion: 'campo',
 };
 
-export default function BatchDetailPage() {
-  const router = useRouter();
-  const params = useParams();
-  const [lote, setLote] = useState<any>(null);
-  const [movimientos, setMovimientos] = useState<any[]>([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const [moveData, setMoveData] = useState({
-    cantidadMovida: '',
-    perdidas: '',
-    motivoPerdida: ''
-  });
+export default async function LoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
 
-  useEffect(() => {
-    const user = getCurrentUser();
-    if (!user) {
-      router.push('/');
-      return;
-    }
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/');
 
-    const allLotes = getLotes();
-    const especies = getEspecies();
-    const centros = getCentros();
-    const foundLote = allLotes.find(l => l.id === params.id);
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*, gen_nativo:gen_nativos(id, nombre)')
+    .eq('id', user.id)
+    .single();
+  if (!profile) redirect('/');
 
-    if (foundLote) {
-      const especie = especies.find(e => e.id === foundLote.especieId);
-      const centro = centros.find(c => c.id === foundLote.centroId);
-      const mortalidad = ((foundLote.cantidadInicial - foundLote.cantidadActual) / foundLote.cantidadInicial * 100).toFixed(1);
+  const { data: lote } = await supabase
+    .from('lotes')
+    .select('*, especie:especies(*), gen_nativo:gen_nativos(nombre)')
+    .eq('id', id)
+    .eq('activo', true)
+    .single();
 
-      setLote({
-        ...foundLote,
-        especieNombre: especie?.nombre || 'Desconocida',
-        especieCientifica: especie?.nombreCientifico || '',
-        centroNombre: centro?.nombre || 'Desconocido',
-        mortalidad: parseFloat(mortalidad)
-      });
+  if (!lote) notFound();
 
-      // Load movements
-      const allMovimientos = getMovimientos();
-      const loteMovimientos = allMovimientos.filter(m => m.loteId === foundLote.id);
-      setMovimientos(loteMovimientos);
-    }
-  }, [params.id, router]);
+  const [{ data: movimientos }, { data: ubicaciones }, { data: sectores }] = await Promise.all([
+    supabase
+      .from('movimientos')
+      .select('*, sector_destino:sectores(tipo, codigo)')
+      .eq('lote_id', id)
+      .order('fecha', { ascending: false }),
+    supabase
+      .from('lote_ubicaciones')
+      .select('*, sector:sectores(tipo, codigo)')
+      .eq('lote_id', id)
+      .gt('cantidad', 0)
+      .order('fecha_entrada', { ascending: false }),
+    supabase
+      .from('sectores')
+      .select('*')
+      .eq('gen_nativo_id', lote.gen_nativo_id)
+      .eq('activo', true)
+      .order('tipo')
+      .order('codigo'),
+  ]);
 
-  const handleMoveToNextStage = () => {
-    if (!lote) return;
-
-    const user = getCurrentUser();
-    if (!user) return;
-
-    const cantidadMovida = parseInt(moveData.cantidadMovida) || lote.cantidadActual;
-    const perdidas = parseInt(moveData.perdidas) || 0;
-    const siguienteEtapa = nextStage[lote.estado as EstadoLote];
-
-    if (!siguienteEtapa) return;
-
-    // Create movement record
-    const movimiento: MovimientoLote = {
-      id: `mov-${Date.now()}`,
-      loteId: lote.id,
-      estadoAnterior: lote.estado,
-      estadoNuevo: siguienteEtapa,
-      cantidadMovida,
-      perdidas,
-      motivoPerdida: moveData.motivoPerdida || undefined,
-      fecha: new Date().toISOString(),
-      realizadoPor: user.id
-    };
-
-    addMovimiento(movimiento);
-
-    // Update lote
-    updateLote(lote.id, {
-      estado: siguienteEtapa,
-      cantidadActual: cantidadMovida - perdidas
-    });
-
-    setOpenDialog(false);
-    router.refresh();
-    window.location.reload();
-  };
-
-  if (!lote) {
-    return <div>Cargando...</div>;
-  }
+  const siguienteEtapa = nextStage[lote.etapa];
+  const totalUbicaciones = (ubicaciones || []).reduce((sum, u) => sum + u.cantidad, 0);
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-      
+      <DashboardHeader profile={profile} />
+
       <main className="container mx-auto px-4 py-6 max-w-5xl">
         <div className="flex items-center gap-4 mb-6">
           <Button variant="ghost" size="icon" asChild>
@@ -150,180 +82,125 @@ export default function BatchDetailPage() {
             </Link>
           </Button>
           <div className="flex-1">
-            <h2 className="text-3xl font-bold tracking-tight">{lote.numero}</h2>
-            <p className="text-muted-foreground mt-1">{lote.especieNombre}</p>
+            <h2 className="text-3xl font-bold tracking-tight">{lote.codigo}</h2>
+            <p className="text-muted-foreground mt-1">
+              {lote.especie?.nombre_comun ?? 'Sin especie'}
+              {lote.especie?.nombre_cientifico && (
+                <em className="ml-2 text-sm">({lote.especie.nombre_cientifico})</em>
+              )}
+            </p>
           </div>
-          {nextStage[lote.estado as EstadoLote] && (
-            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-              <DialogTrigger asChild>
-                <Button>
-                  Avanzar a {estadoLabels[nextStage[lote.estado as EstadoLote]!]}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Avanzar a siguiente etapa</DialogTitle>
-                  <DialogDescription>
-                    Mover lote de {estadoLabels[lote.estado]} a {estadoLabels[nextStage[lote.estado as EstadoLote]!]}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Cantidad a mover</Label>
-                    <Input
-                      type="number"
-                      max={lote.cantidadActual}
-                      placeholder={lote.cantidadActual.toString()}
-                      value={moveData.cantidadMovida}
-                      onChange={(e) => setMoveData({ ...moveData, cantidadMovida: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Disponibles: {lote.cantidadActual.toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Pérdidas registradas</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      value={moveData.perdidas}
-                      onChange={(e) => setMoveData({ ...moveData, perdidas: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Motivo de pérdidas (opcional)</Label>
-                    <Textarea
-                      placeholder="Ej: plagas, sequía, etc."
-                      value={moveData.motivoPerdida}
-                      onChange={(e) => setMoveData({ ...moveData, motivoPerdida: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setOpenDialog(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={handleMoveToNextStage}>
-                    Confirmar movimiento
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+          {siguienteEtapa && (
+            <AvanzarEtapaDialog
+              loteId={lote.id}
+              etapaActual={lote.etapa}
+              etapaDestino={siguienteEtapa}
+              cantidadDisponible={lote.cantidad_actual}
+              sectores={sectores || []}
+              ubicaciones={ubicaciones || []}
+            />
           )}
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Información General</CardTitle>
+              <CardTitle>Información general</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Etapa Actual</span>
-                <Badge variant="secondary" className={estadoColors[lote.estado]}>
-                  {estadoLabels[lote.estado]}
+                <span className="text-muted-foreground">Etapa actual</span>
+                <Badge variant="secondary" className={etapaColors[lote.etapa]}>
+                  {ETAPA_LABELS[lote.etapa] ?? lote.etapa}
                 </Badge>
               </div>
               <Separator />
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Especie</span>
-                <span className="font-medium">{lote.especieNombre}</span>
+                <span className="text-muted-foreground">Gen Nativo</span>
+                <span className="font-medium">{lote.gen_nativo?.nombre ?? '-'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground text-sm">Nombre científico</span>
-                <span className="text-sm italic">{lote.especieCientifica}</span>
-              </div>
-              <Separator />
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Centro</span>
-                <span className="font-medium">{lote.centroNombre}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Fecha de inicio</span>
+                <span className="text-muted-foreground">Fecha de siembra</span>
                 <span className="font-medium">
-                  {new Date(lote.fechaInicio).toLocaleDateString('es-AR')}
+                  {lote.fecha_siembra
+                    ? new Date(lote.fecha_siembra + 'T00:00:00').toLocaleDateString('es-AR')
+                    : '-'}
                 </span>
               </div>
+              {lote.cantidad_semillas_gramos && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Semillas sembradas</span>
+                  <span className="font-medium">{lote.cantidad_semillas_gramos} g</span>
+                </div>
+              )}
+              {lote.cantidad_semillas_n && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">N° semillas</span>
+                  <span className="font-medium">{lote.cantidad_semillas_n.toLocaleString()}</span>
+                </div>
+              )}
+              {lote.notas && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-muted-foreground text-sm mb-1">Notas</p>
+                    <p className="text-sm leading-relaxed">{lote.notas}</p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Estadísticas</CardTitle>
+              <CardTitle>Plantas</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Cantidad Actual</span>
-                <span className="text-2xl font-bold">{lote.cantidadActual.toLocaleString()}</span>
+                <span className="text-muted-foreground">Disponibles ahora</span>
+                <span className="text-2xl font-bold">{lote.cantidad_actual.toLocaleString()}</span>
               </div>
               <Separator />
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Cantidad Inicial</span>
-                <span className="font-medium">{lote.cantidadInicial.toLocaleString()}</span>
+                <span className="text-muted-foreground">Registradas inicialmente</span>
+                <span className="font-medium">{lote.cantidad_inicial.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Pérdidas totales</span>
-                <span className="font-medium">
-                  {(lote.cantidadInicial - lote.cantidadActual).toLocaleString()}
-                </span>
-              </div>
-              <Separator />
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Tasa de Mortalidad</span>
-                <div className={`flex items-center gap-1 ${lote.mortalidad > 20 ? 'text-destructive' : 'text-foreground'}`}>
-                  {lote.mortalidad > 0 && <TrendingDown className="h-4 w-4" />}
-                  <span className="text-xl font-bold">{lote.mortalidad}%</span>
+              {lote.cantidad_semillas_n && lote.cantidad_actual > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tasa de germinación</span>
+                  <span className="font-medium text-green-700">
+                    {((lote.cantidad_actual / lote.cantidad_semillas_n) * 100).toFixed(1)}%
+                  </span>
                 </div>
-              </div>
+              )}
+              {totalUbicaciones > 0 && (
+                <>
+                  <Separator />
+                  <p className="text-sm font-medium text-muted-foreground">En sectores</p>
+                  {(ubicaciones || []).map((u) => (
+                    <div key={u.id} className="flex justify-between items-center text-sm">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <MapPin className="h-3 w-3" />
+                        <span>
+                          {u.sector
+                            ? `${SECTOR_TIPO_LABELS[u.sector.tipo as keyof typeof SECTOR_TIPO_LABELS] ?? u.sector.tipo} ${u.sector.codigo}`
+                            : 'Sin sector'}
+                          {u.envase_tipo && ` · ${u.envase_tipo}`}
+                        </span>
+                      </div>
+                      <span className="font-medium">{u.cantidad.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {(lote.temperaturaMin || lote.humedadMin) && (
+        {movimientos && movimientos.length > 0 && (
           <Card className="mt-6">
             <CardHeader>
-              <CardTitle>Parámetros Ambientales</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-2">
-                {lote.temperaturaMin && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Temperatura</span>
-                    <span className="font-medium">
-                      {lote.temperaturaMin}°C - {lote.temperaturaMax}°C
-                    </span>
-                  </div>
-                )}
-                {lote.humedadMin && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Humedad</span>
-                    <span className="font-medium">
-                      {lote.humedadMin}% - {lote.humedadMax}%
-                    </span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {lote.observaciones && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle>Observaciones</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm leading-relaxed">{lote.observaciones}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {movimientos.length > 0 && (
-          <Card className="mt-6">
-            <CardHeader>
-              <CardTitle>Historial de Movimientos</CardTitle>
+              <CardTitle>Historial de movimientos</CardTitle>
               <CardDescription>Cambios de etapa registrados</CardDescription>
             </CardHeader>
             <CardContent>
@@ -333,22 +210,31 @@ export default function BatchDetailPage() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge variant="outline" className="text-xs">
-                          {estadoLabels[mov.estadoAnterior]}
+                          {ETAPA_LABELS[mov.etapa_origen] ?? mov.etapa_origen}
                         </Badge>
                         <ArrowRight className="h-3 w-3 text-muted-foreground" />
                         <Badge variant="outline" className="text-xs">
-                          {estadoLabels[mov.estadoNuevo]}
+                          {ETAPA_LABELS[mov.etapa_destino] ?? mov.etapa_destino}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {new Date(mov.fecha).toLocaleDateString('es-AR')} - 
-                        Movidos: {mov.cantidadMovida.toLocaleString()} | 
-                        Pérdidas: {mov.perdidas.toLocaleString()}
+                        {new Date(mov.fecha + 'T00:00:00').toLocaleDateString('es-AR')} —{' '}
+                        {mov.cantidad.toLocaleString()} plantas
+                        {mov.sector_destino && (
+                          <span className="ml-1">
+                            → {SECTOR_TIPO_LABELS[mov.sector_destino.tipo as keyof typeof SECTOR_TIPO_LABELS] ?? mov.sector_destino.tipo}{' '}
+                            {mov.sector_destino.codigo}
+                          </span>
+                        )}
+                        {mov.perdidas > 0 && (
+                          <span className="text-destructive ml-2">({mov.perdidas} pérdidas)</span>
+                        )}
                       </p>
-                      {mov.motivoPerdida && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Motivo: {mov.motivoPerdida}
-                        </p>
+                      {mov.motivo_perdida && (
+                        <p className="text-xs text-muted-foreground mt-1">Motivo: {mov.motivo_perdida}</p>
+                      )}
+                      {mov.notas && (
+                        <p className="text-xs text-muted-foreground mt-1">{mov.notas}</p>
                       )}
                     </div>
                   </div>

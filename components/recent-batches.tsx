@@ -1,87 +1,63 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getLotes, getEspecies } from '@/lib/data';
-import { Lote, Especie } from '@/lib/types';
+import { ETAPA_LABELS } from '@/lib/database.types';
 
-const estadoLabels = {
-  germinacion: 'Germinación',
-  repique: 'Repique',
-  rusticacion: 'Rusticación',
-  campo: 'Campo'
+const etapaColors: Record<string, string> = {
+  germinacion: 'bg-blue-100 text-blue-800',
+  repique: 'bg-green-100 text-green-800',
+  rusticacion: 'bg-amber-100 text-amber-800',
+  campo: 'bg-emerald-100 text-emerald-800',
 };
 
-const estadoColors = {
-  germinacion: 'bg-blue-500',
-  repique: 'bg-green-500',
-  rusticacion: 'bg-amber-500',
-  campo: 'bg-emerald-600'
-};
+export async function RecentBatches({ genNativoId }: { genNativoId?: string }) {
+  const supabase = await createClient();
 
-export function RecentBatches() {
-  const [lotes, setLotes] = useState<(Lote & { especieNombre: string })[]>([]);
+  let query = supabase
+    .from('lotes')
+    .select('id, codigo, etapa, cantidad_actual, fecha_siembra, especie:especies(nombre_comun)')
+    .eq('activo', true)
+    .order('created_at', { ascending: false })
+    .limit(5);
 
-  useEffect(() => {
-    const allLotes = getLotes();
-    const especies = getEspecies();
-    
-    const lotesWithSpecies = allLotes
-      .sort((a, b) => new Date(b.creadoEl).getTime() - new Date(a.creadoEl).getTime())
-      .slice(0, 5)
-      .map(lote => {
-        const especie = especies.find(e => e.id === lote.especieId);
-        return {
-          ...lote,
-          especieNombre: especie?.nombre || 'Desconocida'
-        };
-      });
-    
-    setLotes(lotesWithSpecies);
-  }, []);
+  if (genNativoId) query = query.eq('gen_nativo_id', genNativoId);
 
-  if (lotes.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Lotes Recientes</CardTitle>
-          <CardDescription>Últimos lotes creados</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground text-center py-8">
-            No hay lotes registrados
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const { data: lotes } = await query;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Lotes Recientes</CardTitle>
+        <CardTitle>Lotes recientes</CardTitle>
         <CardDescription>Últimos lotes creados</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {lotes.map((lote) => (
-            <div key={lote.id} className="flex items-center justify-between pb-4 border-b border-border last:border-0 last:pb-0">
-              <div className="space-y-1">
-                <p className="font-medium text-sm">{lote.numero}</p>
-                <p className="text-sm text-muted-foreground">{lote.especieNombre}</p>
-              </div>
-              <div className="text-right space-y-1">
-                <Badge variant="secondary" className={estadoColors[lote.estado]}>
-                  {estadoLabels[lote.estado]}
-                </Badge>
-                <p className="text-sm text-muted-foreground">
-                  {lote.cantidadActual.toLocaleString()} plantas
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+        {!lotes || lotes.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">No hay lotes registrados</p>
+        ) : (
+          <div className="space-y-4">
+            {lotes.map((lote) => (
+              <Link key={lote.id} href={`/lotes/${lote.id}`} className="block">
+                <div className="flex items-center justify-between pb-4 border-b border-border last:border-0 last:pb-0 hover:opacity-80 transition-opacity">
+                  <div className="space-y-1">
+                    <p className="font-medium text-sm">{lote.codigo}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(lote.especie as any)?.nombre_comun ?? 'Sin especie'}
+                    </p>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <Badge variant="secondary" className={etapaColors[lote.etapa] ?? ''}>
+                      {ETAPA_LABELS[lote.etapa] ?? lote.etapa}
+                    </Badge>
+                    <p className="text-sm text-muted-foreground">
+                      {lote.cantidad_actual.toLocaleString()} plantas
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

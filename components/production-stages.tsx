@@ -1,62 +1,52 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/server';
 import { StageCard } from './stage-card';
 import { Sprout, Flower2, TreeDeciduous, TreePine } from 'lucide-react';
-import { getLotes } from '@/lib/data';
 
-export function ProductionStages() {
-  const [counts, setCounts] = useState({
-    germinacion: 0,
-    repique: 0,
-    rusticacion: 0,
-    campo: 0
-  });
+export async function ProductionStages({ genNativoId }: { genNativoId?: string }) {
+  const supabase = await createClient();
 
-  useEffect(() => {
-    const lotes = getLotes();
-    
-    const newCounts = {
-      germinacion: lotes.filter(l => l.estado === 'germinacion').length,
-      repique: lotes.filter(l => l.estado === 'repique').length,
-      rusticacion: lotes.filter(l => l.estado === 'rusticacion').length,
-      campo: lotes.filter(l => l.estado === 'campo').length
-    };
-    
-    setCounts(newCounts);
-  }, []);
+  let query = supabase.from('lotes').select('etapa, cantidad_actual').eq('activo', true);
+  if (genNativoId) query = query.eq('gen_nativo_id', genNativoId);
+
+  const { data: lotes } = await query;
+
+  const count = (etapa: string) =>
+    (lotes || []).filter((l) => l.etapa === etapa).length;
+
+  const plantas = (etapa: string) =>
+    (lotes || []).filter((l) => l.etapa === etapa).reduce((s, l) => s + l.cantidad_actual, 0);
 
   return (
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <StageCard
-        title="Germinación"
-        description="Semillas en ambiente controlado"
+        title="Cámara de germinación"
+        description={`${plantas('germinacion').toLocaleString()} semillas`}
         icon={Sprout}
-        count={counts.germinacion}
+        count={count('germinacion')}
         color="bg-blue-500"
         href="/etapas/germinacion"
       />
       <StageCard
         title="Repique"
-        description="Trasplante a contenedores"
+        description={`${plantas('repique').toLocaleString()} plantas`}
         icon={Flower2}
-        count={counts.repique}
+        count={count('repique')}
         color="bg-green-500"
         href="/etapas/repique"
       />
       <StageCard
         title="Rusticación"
-        description="Adaptación progresiva"
+        description={`${plantas('rusticacion').toLocaleString()} plantas`}
         icon={TreeDeciduous}
-        count={counts.rusticacion}
+        count={count('rusticacion')}
         color="bg-amber-500"
         href="/etapas/rusticacion"
       />
       <StageCard
         title="Campo"
-        description="Listos para plantación"
+        description={`${plantas('campo').toLocaleString()} plantas`}
         icon={TreePine}
-        count={counts.campo}
+        count={count('campo')}
         color="bg-emerald-600"
         href="/etapas/campo"
       />

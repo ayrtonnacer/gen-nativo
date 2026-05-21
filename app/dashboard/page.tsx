@@ -6,18 +6,15 @@ import { ProductionChart } from '@/components/production-chart';
 import { SpeciesDistribution } from '@/components/species-distribution';
 import { RecentBatches } from '@/components/recent-batches';
 import { ProductionStages } from '@/components/production-stages';
-import { ExportMenu } from '@/components/export-menu';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Plus, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    redirect('/');
-  }
+  if (!user) redirect('/');
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -25,9 +22,9 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile) {
-    redirect('/');
-  }
+  if (!profile) redirect('/');
+
+  const genNativoId = profile.gen_nativo_id ?? undefined;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -36,10 +33,15 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Panel de Control</h1>
-            <p className="text-gray-600 mt-1">Resumen de produccion y estadisticas</p>
+            <p className="text-gray-600 mt-1">Resumen de producción y estadísticas</p>
           </div>
           <div className="flex gap-3">
-            <ExportMenu />
+            <Button variant="outline" asChild>
+              <Link href="/pedidos">
+                <ClipboardList className="h-4 w-4 mr-2" />
+                Pedidos
+              </Link>
+            </Button>
             <Button asChild>
               <Link href="/lotes/nuevo">
                 <Plus className="h-4 w-4 mr-2" />
@@ -49,16 +51,19 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <DashboardStats />
+        <DashboardStats genNativoId={genNativoId} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-          <ProductionChart />
-          <SpeciesDistribution />
+        <div className="mt-6">
+          <ProductionStages genNativoId={genNativoId} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          <RecentBatches />
-          <ProductionStages />
+          <ProductionChart genNativoId={genNativoId} />
+          <SpeciesDistribution genNativoId={genNativoId} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <RecentBatches genNativoId={genNativoId} />
         </div>
       </main>
     </div>

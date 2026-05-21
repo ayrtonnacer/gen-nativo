@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Users, Leaf, Package } from 'lucide-react';
+import { Building2, Users, Leaf, Package, MapPin } from 'lucide-react';
 
 export default async function AdminPage() {
   const supabase = await createClient();
@@ -10,11 +10,13 @@ export default async function AdminPage() {
     { count: usuariosCount },
     { count: especiesCount },
     { count: lotesCount },
+    { count: sectoresCount },
   ] = await Promise.all([
     supabase.from('gen_nativos').select('*', { count: 'exact', head: true }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase.from('especies').select('*', { count: 'exact', head: true }),
     supabase.from('lotes').select('*', { count: 'exact', head: true }),
+    supabase.from('sectores').select('*', { count: 'exact', head: true }),
   ]);
 
   const stats = [
@@ -22,6 +24,7 @@ export default async function AdminPage() {
     { label: 'Usuarios', value: usuariosCount || 0, icon: Users, color: 'text-blue-600' },
     { label: 'Especies', value: especiesCount || 0, icon: Leaf, color: 'text-green-600' },
     { label: 'Lotes Totales', value: lotesCount || 0, icon: Package, color: 'text-amber-600' },
+    { label: 'Sectores', value: sectoresCount || 0, icon: MapPin, color: 'text-purple-600' },
   ];
 
   return (
@@ -80,6 +83,15 @@ export default async function AdminPage() {
                 <div>
                   <p className="font-medium">Agregar especie</p>
                   <p className="text-sm text-muted-foreground">Expande el catalogo de especies</p>
+                </div>
+              </div>
+            </a>
+            <a href="/admin/sectores/nuevo" className="block p-3 rounded-lg border border-border hover:bg-muted transition-colors">
+              <div className="flex items-center gap-3">
+                <MapPin className="h-5 w-5 text-purple-600" />
+                <div>
+                  <p className="font-medium">Agregar sector</p>
+                  <p className="text-sm text-muted-foreground">Estantería, cama, caballete, macrotúnel o cancha</p>
                 </div>
               </div>
             </a>

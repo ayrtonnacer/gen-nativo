@@ -1,71 +1,43 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/server';
 import { StatCard } from './stat-card';
-import { Sprout, TrendingUp, AlertTriangle, Package } from 'lucide-react';
-import { getLotes, getEspecies } from '@/lib/data';
-import { Lote } from '@/lib/types';
+import { Sprout, Package, Layers, Truck } from 'lucide-react';
 
-export function DashboardStats() {
-  const [stats, setStats] = useState({
-    totalPlantas: 0,
-    lotesActivos: 0,
-    tasaMortalidad: 0,
-    especiesActivas: 0
-  });
+export async function DashboardStats({ genNativoId }: { genNativoId?: string }) {
+  const supabase = await createClient();
 
-  useEffect(() => {
-    const lotes = getLotes();
-    const especies = getEspecies();
-    
-    const totalPlantas = lotes.reduce((sum, lote) => sum + lote.cantidadActual, 0);
-    const lotesActivos = lotes.length;
-    
-    // Calculate mortality rate
-    const totalInicial = lotes.reduce((sum, lote) => sum + lote.cantidadInicial, 0);
-    const totalActual = lotes.reduce((sum, lote) => sum + lote.cantidadActual, 0);
-    const tasaMortalidad = totalInicial > 0 
-      ? ((totalInicial - totalActual) / totalInicial * 100) 
-      : 0;
-    
-    // Count unique species in active lotes
-    const especiesSet = new Set(lotes.map(l => l.especieId));
-    const especiesActivas = especiesSet.size;
-    
-    setStats({
-      totalPlantas,
-      lotesActivos,
-      tasaMortalidad: Math.round(tasaMortalidad * 10) / 10,
-      especiesActivas
-    });
-  }, []);
+  let query = supabase.from('lotes').select('etapa, cantidad_actual').eq('activo', true);
+  if (genNativoId) query = query.eq('gen_nativo_id', genNativoId);
+
+  const { data: lotes } = await query;
+
+  const totalPlantas = (lotes || []).reduce((s, l) => s + l.cantidad_actual, 0);
+  const porEtapa = (etapa: string) => (lotes || []).filter((l) => l.etapa === etapa).length;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <StatCard
-        title="Total de Plantas"
-        value={stats.totalPlantas.toLocaleString()}
-        description="En todas las etapas"
+        title="Total de plantas"
+        value={totalPlantas.toLocaleString()}
+        description="En producción activa"
         icon={Sprout}
       />
       <StatCard
-        title="Lotes Activos"
-        value={stats.lotesActivos}
-        description="En producción"
+        title="Cámara germinación"
+        value={porEtapa('germinacion')}
+        description="Lotes en cámara"
+        icon={Layers}
+      />
+      <StatCard
+        title="Repique"
+        value={porEtapa('repique')}
+        description="Lotes en invernadero"
         icon={Package}
       />
       <StatCard
-        title="Tasa de Mortalidad"
-        value={`${stats.tasaMortalidad}%`}
-        description="Promedio general"
-        icon={AlertTriangle}
-        className={stats.tasaMortalidad > 20 ? "border-destructive/50" : ""}
-      />
-      <StatCard
-        title="Especies Activas"
-        value={stats.especiesActivas}
-        description="En cultivo"
-        icon={TrendingUp}
+        title="Rusticación"
+        value={porEtapa('rusticacion')}
+        description="Lotes en canchas"
+        icon={Truck}
       />
     </div>
   );

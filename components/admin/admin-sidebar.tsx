@@ -3,14 +3,15 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { 
-  Building2, 
-  Users, 
-  Leaf, 
-  Home, 
+import {
+  Building2,
+  Users,
+  Leaf,
+  Home,
   LogOut,
   ChevronLeft,
-  Settings
+  Settings,
+  MapPin,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Profile } from '@/lib/database.types';
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/admin/gen-nativos', label: 'Gen Nativos', icon: Building2 },
   { href: '/admin/usuarios', label: 'Usuarios', icon: Users },
   { href: '/admin/especies', label: 'Especies', icon: Leaf },
+  { href: '/admin/sectores', label: 'Sectores', icon: MapPin },
 ];
 
 export function AdminSidebar({ profile }: AdminSidebarProps) {

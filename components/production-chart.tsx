@@ -1,73 +1,41 @@
-'use client';
-
-import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getLotes, getEspecies } from '@/lib/data';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { ProductionChartClient } from './production-chart-client';
 
-export function ProductionChart() {
-  const [data, setData] = useState<any[]>([]);
+export async function ProductionChart({ genNativoId }: { genNativoId?: string }) {
+  const supabase = await createClient();
 
-  useEffect(() => {
-    const lotes = getLotes();
-    
-    // Group by stage
-    const byStage = {
-      germinacion: 0,
-      repique: 0,
-      rusticacion: 0,
-      campo: 0
-    };
-    
-    lotes.forEach(lote => {
-      byStage[lote.estado] += lote.cantidadActual;
-    });
-    
-    const chartData = [
-      { name: 'Germinación', value: byStage.germinacion, label: 'Germinación' },
-      { name: 'Repique', value: byStage.repique, label: 'Repique' },
-      { name: 'Rusticación', value: byStage.rusticacion, label: 'Rusticación' },
-      { name: 'Campo', value: byStage.campo, label: 'Campo' }
-    ];
-    
-    setData(chartData);
-  }, []);
+  let query = supabase.from('lotes').select('etapa, cantidad_actual').eq('activo', true);
+  if (genNativoId) query = query.eq('gen_nativo_id', genNativoId);
 
-  const COLORS = ['#4ade80', '#22c55e', '#16a34a', '#15803d'];
+  const { data: lotes } = await query;
+
+  const byStage: Record<string, number> = {
+    germinacion: 0,
+    repique: 0,
+    rusticacion: 0,
+    campo: 0,
+  };
+
+  (lotes || []).forEach((l) => {
+    if (l.etapa in byStage) byStage[l.etapa] += l.cantidad_actual;
+  });
+
+  const chartData = [
+    { name: 'Cám. germinación', value: byStage.germinacion },
+    { name: 'Repique', value: byStage.repique },
+    { name: 'Rusticación', value: byStage.rusticacion },
+    { name: 'Campo', value: byStage.campo },
+  ];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Distribución por Etapa</CardTitle>
-        <CardDescription>Cantidad de plantas en cada etapa de producción</CardDescription>
+        <CardTitle>Plantas por etapa</CardTitle>
+        <CardDescription>Distribución de plantas en producción</CardDescription>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-            <XAxis 
-              dataKey="label" 
-              className="text-xs"
-              tick={{ fill: 'hsl(var(--muted-foreground))' }}
-            />
-            <YAxis 
-              className="text-xs"
-              tick={{ fill: 'hsl(var(--muted-foreground))' }}
-            />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.5rem'
-              }}
-            />
-            <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <ProductionChartClient data={chartData} />
       </CardContent>
     </Card>
   );

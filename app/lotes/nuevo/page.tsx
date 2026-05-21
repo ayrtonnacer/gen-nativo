@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,78 +15,143 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ArrowLeft, Plus, Leaf } from 'lucide-react';
 import Link from 'next/link';
-import { addLote } from '@/lib/data';
-import { getEspecies, getCentros } from '@/lib/data';
-import { Lote, EstadoLote } from '@/lib/types';
+import { createClient } from '@/lib/supabase/client';
+import { Especie, Profile, ETAPA_LABELS } from '@/lib/database.types';
 
-export default function NewBatchPage() {
+export default function NewLotePage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [especies, setEspecies] = useState<any[]>([]);
-  const [centros, setCentros] = useState<any[]>([]);
+  const [error, setError] = useState('');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [especies, setEspecies] = useState<Especie[]>([]);
+  const [showNewEspecie, setShowNewEspecie] = useState(false);
+  const [newEspecieLoading, setNewEspecieLoading] = useState(false);
+  const [newEspecieNombre, setNewEspecieNombre] = useState('');
+  const [newEspecieCientifico, setNewEspecieCientifico] = useState('');
+
   const [formData, setFormData] = useState({
-    numero: '',
-    especieId: '',
-    centroId: '',
-    estado: 'germinacion' as EstadoLote,
-    cantidadInicial: '',
-    temperaturaMin: '',
-    temperaturaMax: '',
-    humedadMin: '',
-    humedadMax: '',
-    observaciones: ''
+    codigo: '',
+    especie_id: '',
+    etapa: 'germinacion',
+    fecha_siembra: new Date().toISOString().split('T')[0],
+    cantidad_semillas_gramos: '',
+    cantidad_semillas_n: '',
+    cantidad_inicial: '',
+    notas: '',
   });
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user) {
-      router.push('/');
-      return;
+    const supabase = createClient();
+
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push('/'); return; }
+
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('*, gen_nativo:gen_nativos(id, nombre)')
+        .eq('id', user.id)
+        .single();
+
+      if (!p) { router.push('/'); return; }
+      setProfile(p);
+
+      const { data: esp } = await supabase
+        .from('especies')
+        .select('*')
+        .eq('activo', true)
+        .order('nombre_comun');
+      setEspecies(esp || []);
     }
-    
-    setEspecies(getEspecies());
-    setCentros(getCentros());
-    
-    // Set default centro to user's centro
-    setFormData(prev => ({ ...prev, centroId: user.centroId }));
+    load();
   }, [router]);
+
+  const loadEspecies = async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from('especies')
+      .select('*')
+      .eq('activo', true)
+      .order('nombre_comun');
+    setEspecies(data || []);
+  };
+
+  const handleCreateEspecie = async () => {
+    if (!newEspecieNombre.trim()) return;
+    setNewEspecieLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('especies')
+      .insert({
+        nombre_comun: newEspecieNombre.trim(),
+        nombre_cientifico: newEspecieCientifico.trim() || null,
+        activo: true,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      await loadEspecies();
+      setFormData(prev => ({ ...prev, especie_id: data.id }));
+      setNewEspecieNombre('');
+      setNewEspecieCientifico('');
+      setShowNewEspecie(false);
+    }
+    setNewEspecieLoading(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profile) return;
+    setError('');
     setLoading(true);
 
-    const user = getCurrentUser();
-    if (!user) return;
+    const supabase = createClient();
+    const { error: insertError } = await supabase.from('lotes').insert({
+      codigo: formData.codigo,
+      gen_nativo_id: profile.gen_nativo_id,
+      especie_id: formData.especie_id || null,
+      etapa: formData.etapa,
+      fecha_siembra: formData.fecha_siembra || null,
+      cantidad_semillas_gramos: formData.cantidad_semillas_gramos
+        ? parseFloat(formData.cantidad_semillas_gramos)
+        : null,
+      cantidad_semillas_n: formData.cantidad_semillas_n
+        ? parseInt(formData.cantidad_semillas_n)
+        : null,
+      cantidad_inicial: parseInt(formData.cantidad_inicial) || 0,
+      cantidad_actual: parseInt(formData.cantidad_inicial) || 0,
+      fecha_inicio: new Date().toISOString(),
+      notas: formData.notas || null,
+      activo: true,
+    });
 
-    const newLote: Lote = {
-      id: `lote-${Date.now()}`,
-      numero: formData.numero,
-      especieId: formData.especieId,
-      centroId: formData.centroId,
-      estado: formData.estado,
-      cantidadInicial: parseInt(formData.cantidadInicial),
-      cantidadActual: parseInt(formData.cantidadInicial),
-      fechaInicio: new Date().toISOString(),
-      temperaturaMin: formData.temperaturaMin ? parseFloat(formData.temperaturaMin) : undefined,
-      temperaturaMax: formData.temperaturaMax ? parseFloat(formData.temperaturaMax) : undefined,
-      humedadMin: formData.humedadMin ? parseFloat(formData.humedadMin) : undefined,
-      humedadMax: formData.humedadMax ? parseFloat(formData.humedadMax) : undefined,
-      observaciones: formData.observaciones || undefined,
-      creadoPor: user.id,
-      creadoEl: new Date().toISOString()
-    };
+    if (insertError) {
+      setError(insertError.message);
+      setLoading(false);
+      return;
+    }
 
-    addLote(newLote);
     router.push('/dashboard');
-    setLoading(false);
+    router.refresh();
   };
+
+  if (!profile) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-      
+      <DashboardHeader profile={profile} />
+
       <main className="container mx-auto px-4 py-6 max-w-3xl">
         <div className="flex items-center gap-4 mb-6">
           <Button variant="ghost" size="icon" asChild>
@@ -97,9 +161,7 @@ export default function NewBatchPage() {
           </Button>
           <div>
             <h2 className="text-3xl font-bold tracking-tight">Nuevo Lote</h2>
-            <p className="text-muted-foreground mt-1">
-              Registrar un nuevo lote de producción
-            </p>
+            <p className="text-muted-foreground mt-1">Registrar un nuevo lote de producción</p>
           </div>
         </div>
 
@@ -110,32 +172,101 @@ export default function NewBatchPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="numero">Número de Lote *</Label>
+                  <Label htmlFor="codigo">Código del lote *</Label>
                   <Input
-                    id="numero"
-                    placeholder="L-2024-001"
-                    value={formData.numero}
-                    onChange={(e) => setFormData({ ...formData, numero: e.target.value })}
+                    id="codigo"
+                    placeholder="Ej: L-2026-001"
+                    value={formData.codigo}
+                    onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
                     required
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="especie">Especie *</Label>
+                  <Label htmlFor="etapa">Etapa inicial *</Label>
                   <Select
-                    value={formData.especieId}
-                    onValueChange={(value) => setFormData({ ...formData, especieId: value })}
-                    required
+                    value={formData.etapa}
+                    onValueChange={(v) => setFormData({ ...formData, etapa: v })}
+                  >
+                    <SelectTrigger id="etapa">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(ETAPA_LABELS).map(([val, label]) => (
+                        <SelectItem key={val} value={val}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="especie">Especie</Label>
+                    <Dialog open={showNewEspecie} onOpenChange={setShowNewEspecie}>
+                      <DialogTrigger asChild>
+                        <Button type="button" variant="ghost" size="sm" className="text-xs h-7">
+                          <Plus className="h-3 w-3 mr-1" />
+                          Nueva especie
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Agregar especie</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4 pt-2">
+                          <div className="space-y-2">
+                            <Label>Nombre común *</Label>
+                            <Input
+                              placeholder="Ej: Algarrobo blanco"
+                              value={newEspecieNombre}
+                              onChange={(e) => setNewEspecieNombre(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Nombre científico</Label>
+                            <Input
+                              placeholder="Ej: Prosopis alba"
+                              value={newEspecieCientifico}
+                              onChange={(e) => setNewEspecieCientifico(e.target.value)}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            onClick={handleCreateEspecie}
+                            disabled={newEspecieLoading || !newEspecieNombre.trim()}
+                            className="w-full"
+                          >
+                            {newEspecieLoading ? 'Guardando...' : 'Crear especie'}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                  <Select
+                    value={formData.especie_id}
+                    onValueChange={(v) => setFormData({ ...formData, especie_id: v })}
                   >
                     <SelectTrigger id="especie">
                       <SelectValue placeholder="Seleccionar especie" />
                     </SelectTrigger>
                     <SelectContent>
-                      {especies.map((especie) => (
-                        <SelectItem key={especie.id} value={especie.id}>
-                          {especie.nombre}
+                      {especies.map((esp) => (
+                        <SelectItem key={esp.id} value={esp.id}>
+                          <span className="flex items-center gap-2">
+                            <Leaf className="h-3 w-3 text-muted-foreground" />
+                            {esp.nombre_comun}
+                            {esp.nombre_cientifico && (
+                              <em className="text-muted-foreground text-xs">({esp.nombre_cientifico})</em>
+                            )}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -143,126 +274,63 @@ export default function NewBatchPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="centro">Centro de Producción *</Label>
-                  <Select
-                    value={formData.centroId}
-                    onValueChange={(value) => setFormData({ ...formData, centroId: value })}
-                    required
-                  >
-                    <SelectTrigger id="centro">
-                      <SelectValue placeholder="Seleccionar centro" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {centros.map((centro) => (
-                        <SelectItem key={centro.id} value={centro.id}>
-                          {centro.nombre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="estado">Etapa Inicial *</Label>
-                  <Select
-                    value={formData.estado}
-                    onValueChange={(value) => setFormData({ ...formData, estado: value as EstadoLote })}
-                    required
-                  >
-                    <SelectTrigger id="estado">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="germinacion">Germinación</SelectItem>
-                      <SelectItem value="repique">Repique</SelectItem>
-                      <SelectItem value="rusticacion">Rusticación</SelectItem>
-                      <SelectItem value="campo">Campo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="cantidad">Cantidad Inicial *</Label>
+                  <Label htmlFor="fecha_siembra">Fecha de siembra *</Label>
                   <Input
-                    id="cantidad"
-                    type="number"
-                    min="1"
-                    placeholder="1000"
-                    value={formData.cantidadInicial}
-                    onChange={(e) => setFormData({ ...formData, cantidadInicial: e.target.value })}
+                    id="fecha_siembra"
+                    type="date"
+                    value={formData.fecha_siembra}
+                    onChange={(e) => setFormData({ ...formData, fecha_siembra: e.target.value })}
                     required
                   />
                 </div>
-              </div>
 
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm text-muted-foreground">
-                  Parámetros Ambientales (Opcional)
-                </h3>
-                
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="tempMin">Temperatura Mínima (°C)</Label>
-                    <Input
-                      id="tempMin"
-                      type="number"
-                      step="0.1"
-                      placeholder="18"
-                      value={formData.temperaturaMin}
-                      onChange={(e) => setFormData({ ...formData, temperaturaMin: e.target.value })}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cantidad_semillas_gramos">Semillas (gramos)</Label>
+                  <Input
+                    id="cantidad_semillas_gramos"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Ej: 250.5"
+                    value={formData.cantidad_semillas_gramos}
+                    onChange={(e) => setFormData({ ...formData, cantidad_semillas_gramos: e.target.value })}
+                  />
+                </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="tempMax">Temperatura Máxima (°C)</Label>
-                    <Input
-                      id="tempMax"
-                      type="number"
-                      step="0.1"
-                      placeholder="25"
-                      value={formData.temperaturaMax}
-                      onChange={(e) => setFormData({ ...formData, temperaturaMax: e.target.value })}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cantidad_semillas_n">Cantidad de semillas (unidades)</Label>
+                  <Input
+                    id="cantidad_semillas_n"
+                    type="number"
+                    min="0"
+                    placeholder="Ej: 5000"
+                    value={formData.cantidad_semillas_n}
+                    onChange={(e) => setFormData({ ...formData, cantidad_semillas_n: e.target.value })}
+                  />
+                </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="humMin">Humedad Mínima (%)</Label>
-                    <Input
-                      id="humMin"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="100"
-                      placeholder="60"
-                      value={formData.humedadMin}
-                      onChange={(e) => setFormData({ ...formData, humedadMin: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="humMax">Humedad Máxima (%)</Label>
-                    <Input
-                      id="humMax"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="100"
-                      placeholder="80"
-                      value={formData.humedadMax}
-                      onChange={(e) => setFormData({ ...formData, humedadMax: e.target.value })}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cantidad_inicial">Cantidad inicial de plantas</Label>
+                  <Input
+                    id="cantidad_inicial"
+                    type="number"
+                    min="0"
+                    placeholder="Ej: 1000"
+                    value={formData.cantidad_inicial}
+                    onChange={(e) => setFormData({ ...formData, cantidad_inicial: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Dejar en 0 si todavía no germinaron</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="observaciones">Observaciones</Label>
+                <Label htmlFor="notas">Notas</Label>
                 <Textarea
-                  id="observaciones"
-                  placeholder="Notas adicionales sobre el lote..."
-                  rows={4}
-                  value={formData.observaciones}
-                  onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
+                  id="notas"
+                  placeholder="Observaciones adicionales..."
+                  rows={3}
+                  value={formData.notas}
+                  onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
                 />
               </div>
 

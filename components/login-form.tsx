@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Leaf } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { CambiarPasswordForm } from '@/components/cambiar-password-form';
 
 export function LoginForm() {
   const router = useRouter();
@@ -16,6 +17,20 @@ export function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRecovery, setIsRecovery] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +53,15 @@ export function LoginForm() {
     router.push('/dashboard');
     router.refresh();
   };
+
+  if (isRecovery) {
+    return (
+      <CambiarPasswordForm
+        title="Definir nueva contrasena"
+        description="Confirmamos tu identidad. Elegi una contrasena nueva para tu cuenta."
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 p-4">
